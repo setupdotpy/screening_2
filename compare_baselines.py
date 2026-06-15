@@ -19,6 +19,8 @@ import usv_active_sensing_mpc_cbf_sim_research_model as base
 base.GENERATE_MP4 = False
 PLOT_DIR = Path("plot")
 PLOT_DIR.mkdir(exist_ok=True)
+COMPARISON_DIR = PLOT_DIR / "comparison"
+COMPARISON_DIR.mkdir(exist_ok=True)
 
 plt.rcParams.update(
     {
@@ -33,13 +35,13 @@ plt.rcParams.update(
 
 METHODS = {
     "Ours": {"color": "#004f80", "ls": "-", "lw": 2.4},
-    "B2 Greedy nearest": {"color": "#f28e2b", "ls": "--", "lw": 2.2},
-    "B3 No-CBF": {"color": "#7b3294", "ls": ":", "lw": 2.7},
+    "Baseline 1": {"color": "#f28e2b", "ls": "--", "lw": 2.2},
+    "Baseline 2": {"color": "#7b3294", "ls": ":", "lw": 2.7},
 }
 
 B2_POSE_HOLD_RADIUS = 60.0
 GENERATE_COMPARISON_MP4 = True
-COMPARISON_MP4_FILENAME = PLOT_DIR / "comparison_test.mp4"
+COMPARISON_MP4_FILENAME = COMPARISON_DIR / "comparison_test.mp4"
 COMPARISON_ANIMATION_STRIDE = 20
 COMPARISON_ANIMATION_FPS = 20
 
@@ -91,7 +93,7 @@ def greedy_nearest_observation_poses():
         if valid:
             poses.append(min(valid, key=lambda item: item[0])[1])
         else:
-            print(f"Warning: B2 found no safe pose near target {target}; using optimized base pose.")
+            print(f"Warning: Baseline 1 found no safe pose near target {target}; using optimized base pose.")
             poses.append(base.OBS_POSES[len(poses)])
     return np.array(poses)
 
@@ -488,7 +490,7 @@ def simulate_method(method_name):
         states, metrics = base.simulate()
         metrics["obs_poses"] = base.OBS_POSES
         return states, metrics
-    if method_name == "B2 Greedy nearest":
+    if method_name == "Baseline 1":
         return simulate_variant(
             method_name,
             greedy_nearest_observation_poses(),
@@ -496,7 +498,7 @@ def simulate_method(method_name):
             use_rejoin=False,
             controller_mode="b2_waypoint",
         )
-    if method_name == "B3 No-CBF":
+    if method_name == "Baseline 2":
         return simulate_variant(method_name, base.OBS_POSES.copy(), use_cbf=False, use_rejoin=True)
     raise ValueError(f"Unknown method {method_name}")
 
@@ -528,7 +530,7 @@ def save_comparison_csv(results):
         row.update(result["summary"])
         rows.append(row)
     fields = ["method"] + list(next(iter(results.values()))["summary"].keys())
-    with open(PLOT_DIR / "comparison_metrics.csv", "w", newline="") as f:
+    with open(COMPARISON_DIR / "comparison_metrics.csv", "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
@@ -585,7 +587,7 @@ def save_comparison_table(results):
             cell.set_facecolor("#f5f3ff")
     ax.set_title("Baseline comparison metrics", pad=8)
     fig.tight_layout()
-    fig.savefig(PLOT_DIR / "comparison_metrics.png", dpi=180)
+    fig.savefig(COMPARISON_DIR / "comparison_metrics.png", dpi=180)
     plt.close(fig)
 
 
@@ -643,8 +645,8 @@ def save_comparison_trajectories(results):
     handles = [
         mlines.Line2D([], [], color="#1b6ca8", ls="--", lw=2, label="nominal route"),
         mlines.Line2D([], [], color=METHODS["Ours"]["color"], lw=2.4, label="Ours"),
-        mlines.Line2D([], [], color=METHODS["B2 Greedy nearest"]["color"], ls="--", lw=2.2, label="B2 Greedy nearest"),
-        mlines.Line2D([], [], color=METHODS["B3 No-CBF"]["color"], ls=":", lw=2.7, label="B3 No-CBF"),
+        mlines.Line2D([], [], color=METHODS["Baseline 1"]["color"], ls="--", lw=2.2, label="Baseline 1"),
+        mlines.Line2D([], [], color=METHODS["Baseline 2"]["color"], ls=":", lw=2.7, label="Baseline 2"),
         mlines.Line2D([], [], marker="*", color="black", markerfacecolor="yellow", markersize=12, ls="", label="GP-selected target"),
         mlines.Line2D([], [], marker="s", color="black", markerfacecolor="none", markersize=8, ls="", label="observation pose"),
         mlines.Line2D([], [], marker="x", color="black", markersize=8, ls="", label="Synthetic arrival source"),
@@ -660,7 +662,7 @@ def save_comparison_trajectories(results):
     ax.set_ylim(base.Y_MIN, base.Y_MAX)
     ax.set_aspect("equal", adjustable="box")
     fig.tight_layout()
-    fig.savefig(PLOT_DIR / "comparison_trajectories.png", dpi=220)
+    fig.savefig(COMPARISON_DIR / "comparison_trajectories.png", dpi=220)
     plt.close(fig)
 
 
@@ -681,7 +683,7 @@ def save_comparison_timeseries(results):
     ax.grid(True, alpha=0.25)
     ax.legend()
     fig.tight_layout()
-    fig.savefig(PLOT_DIR / "comparison_detection_probability.png", dpi=180)
+    fig.savefig(COMPARISON_DIR / "comparison_detection_probability.png", dpi=180)
     plt.close(fig)
 
     fig, axes = plt.subplots(2, 2, figsize=(11, 7), sharex=True, sharey=True)
@@ -700,7 +702,7 @@ def save_comparison_timeseries(results):
     axes[0, 1].legend(loc="lower right", fontsize=8)
     fig.suptitle("Observation progress from detection probability")
     fig.tight_layout()
-    fig.savefig(PLOT_DIR / "comparison_observation_progress.png", dpi=180)
+    fig.savefig(COMPARISON_DIR / "comparison_observation_progress.png", dpi=180)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -714,7 +716,7 @@ def save_comparison_timeseries(results):
     ax.grid(True, alpha=0.25)
     ax.legend()
     fig.tight_layout()
-    fig.savefig(PLOT_DIR / "comparison_cbf_h.png", dpi=180)
+    fig.savefig(COMPARISON_DIR / "comparison_cbf_h.png", dpi=180)
     plt.close(fig)
 
 
@@ -827,15 +829,15 @@ def print_summary(results):
         print("  ".join(row[i].ljust(widths[i]) for i in range(len(headers))))
 
 
-def print_b2_details(results):
-    metrics = results["B2 Greedy nearest"]["metrics"]
-    print("\nB2 arrival delay by target [s]:")
+def print_baseline1_details(results):
+    metrics = results["Baseline 1"]["metrics"]
+    print("\nBaseline 1 arrival delay by target [s]:")
     for i, value in enumerate(metrics["arrival_delay"]):
         print(f"  T{i}: {value:.1f}")
-    print("B2 observed_time by target [s]:")
+    print("Baseline 1 observed_time by target [s]:")
     for i, value in enumerate(metrics["observed_time"]):
         print(f"  T{i}: {value:.1f}")
-    print(f"B2 missed flags: {metrics['missed'].tolist()}")
+    print(f"Baseline 1 missed flags: {metrics['missed'].tolist()}")
 
 
 def main():
@@ -850,8 +852,8 @@ def main():
         }
     save_outputs(results)
     print_summary(results)
-    print_b2_details(results)
-    print(f"Saved comparison CSV, PNG, and MP4 outputs in {PLOT_DIR}/")
+    print_baseline1_details(results)
+    print(f"Saved comparison CSV, PNG, and MP4 outputs in {COMPARISON_DIR}/")
 
 
 if __name__ == "__main__":

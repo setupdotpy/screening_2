@@ -1,3 +1,3 @@
 Method,TotalPdIntegral,MeanPd,ObservationCompletionFraction
 Ours,3185.190876,0.115010,1.000000
-B2 Greedy nearest,2170.251673,0.076647,0.750000
+Baseline 1,2170.251673,0.076647,0.750000

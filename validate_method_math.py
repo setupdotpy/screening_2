@@ -262,8 +262,9 @@ def validation_camera_alignment():
     ax.grid(True, axis="x", alpha=0.25)
     aligned_handle = plt.Line2D([], [], marker="o", color="none", markerfacecolor="#2563eb", markeredgecolor="black", label="aligned camera")
     unaligned_handle = plt.Line2D([], [], marker="o", color="none", markerfacecolor="#f97316", markeredgecolor="black", label="unaligned camera")
-    ax.legend(handles=[unaligned_handle, aligned_handle], loc="lower right")
+    ax.legend(handles=[unaligned_handle, aligned_handle], loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.24), frameon=True)
     fig.tight_layout()
+    fig.subplots_adjust(bottom=0.24)
     fig.savefig(OUT_DIR / "validation_camera_alignment.png", dpi=180)
     plt.close(fig)
     return rows
@@ -284,7 +285,7 @@ def run_methods():
 
 def validation_mpc_detection(results):
     rows = []
-    for name in ["Ours", "B2 Greedy nearest"]:
+    for name in ["Ours", "Baseline 1"]:
         s = results[name]["summary"]
         coverage = results[name]["metrics"]["coverage"][-1]
         rows.append(
@@ -318,7 +319,7 @@ def validation_mpc_detection(results):
 
 def validation_cbf(results):
     rows = []
-    for name in ["Ours", "B3 No-CBF"]:
+    for name in ["Ours", "Baseline 2"]:
         metrics = results[name]["metrics"]
         h = np.asarray(metrics["h_min"])
         dist = np.asarray(metrics["dist_to_safety"])
@@ -332,40 +333,44 @@ def validation_cbf(results):
         )
     write_csv("validation_cbf.csv", rows, ["Method", "MinH", "SafetyViolations", "MinimumObstacleDistance"])
 
-    methods = [row["Method"] for row in rows]
-    signed_distance = [float(row["MinimumObstacleDistance"]) for row in rows]
-    violations = [float(row["SafetyViolations"]) for row in rows]
-    min_h = [float(row["MinH"]) for row in rows]
+    ours = results["Ours"]["metrics"]
+    no_cbf = results["Baseline 2"]["metrics"]
+    t_ours = (ours["times"] - base.START_CLOCK) / 60.0
+    t_no_cbf = (no_cbf["times"] - base.START_CLOCK) / 60.0
+    d_ours = np.asarray(ours["dist_to_safety"])
+    d_no_cbf = np.asarray(no_cbf["dist_to_safety"])
+    d_ours_clipped = np.clip(d_ours, -250.0, 250.0)
+    d_no_cbf_clipped = np.clip(d_no_cbf, -250.0, 250.0)
 
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.4))
-    colors = ["#004f80", "#7b3294"]
-    bars = axes[0].bar(methods, signed_distance, color=colors)
-    axes[0].axhline(0.0, color="black", lw=1.0)
-    axes[0].bar_label(bars, fmt="%.1f m", fontsize=9, padding=3)
-    axes[0].set_ylabel("signed distance to safety boundary [m]")
-    axes[0].set_title("Minimum safety margin")
-    axes[0].grid(True, axis="y", alpha=0.25)
-    axes[0].text(0, signed_distance[0] + 45.0, "safe\nh >= 0", ha="center", va="bottom", color="#004f80", fontsize=9)
-    axes[0].text(1, signed_distance[1] - 45.0, "unsafe\nh < 0", ha="center", va="top", color="#7b3294", fontsize=9)
+    fig, ax = plt.subplots(figsize=(9.5, 4.8))
+    ax.fill_between(t_no_cbf, d_no_cbf_clipped, 0.0, where=d_no_cbf_clipped < 0.0, color="#fca5a5", alpha=0.45, label="unsafe region")
+    ax.plot(t_ours, d_ours_clipped, color="#004f80", lw=2.2, label="Ours with CBF")
+    ax.plot(t_no_cbf, d_no_cbf_clipped, color="#7b3294", lw=2.0, ls="--", label="Baseline 2")
+    ax.axhline(0.0, color="black", lw=1.0)
+    ax.set_ylim(-260.0, 270.0)
+    ax.set_xlabel("minutes after 10:00")
+    ax.set_ylabel("signed distance to safety boundary [m]")
+    ax.set_title("Validation 5: CBF safety margin over time")
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="lower left", framealpha=0.92)
 
-    bars = axes[1].bar(methods, violations, color=colors)
-    axes[1].bar_label(bars, fmt="%.0f", fontsize=9, padding=3)
-    axes[1].set_ylabel("number of time steps")
-    axes[1].set_title("CBF safety violations")
-    axes[1].grid(True, axis="y", alpha=0.25)
-    for ax in axes:
-        ax.tick_params(axis="x", rotation=10)
-
-    fig.suptitle("Validation 5: CBF keeps the trajectory outside obstacle safety sets")
+    text = (
+        "Safety summary\n"
+        f"Ours: min distance = {float(np.min(d_ours)):.1f} m, violations = {int(np.sum(np.asarray(ours['h_min']) < 0.0))}\n"
+        f"Baseline 2: min distance = {float(np.min(d_no_cbf)):.1f} m, violations = {int(np.sum(np.asarray(no_cbf['h_min']) < 0.0))}\n"
+        "Negative distance means inside an obstacle safety set.\n"
+        "Displayed margin is clipped to +/-250 m for readability."
+    )
     fig.text(
         0.5,
-        0.01,
-        f"min h: Ours = {min_h[0]:.1f}, No-CBF = {min_h[1]:.1f}",
+        0.03,
+        text,
         ha="center",
+        va="bottom",
         fontsize=9,
+        bbox=dict(boxstyle="round,pad=0.35", fc="white", ec="0.5", alpha=0.9),
     )
-    fig.tight_layout()
-    fig.subplots_adjust(bottom=0.17)
+    fig.tight_layout(rect=[0.0, 0.22, 1.0, 1.0])
     fig.savefig(OUT_DIR / "validation_cbf.png", dpi=180)
     plt.close(fig)
     return rows
@@ -373,7 +378,7 @@ def validation_cbf(results):
 
 def validation_summary(results):
     rows = []
-    for name in ["Ours", "B2 Greedy nearest", "B3 No-CBF"]:
+    for name in ["Ours", "Baseline 1", "Baseline 2"]:
         s = results[name]["summary"]
         rows.append(
             {
@@ -399,9 +404,9 @@ def print_report(mean_lambda, pose_rows, camera_rows, mpc_rows, cbf_rows, summar
     pose_improvements = [float(row["Improvement_percent"]) for row in pose_rows]
     camera_gains = [float(row["Alignment_gain"]) for row in camera_rows]
     ours_mpc = next(row for row in mpc_rows if row["Method"] == "Ours")
-    b2_mpc = next(row for row in mpc_rows if row["Method"] == "B2 Greedy nearest")
+    b2_mpc = next(row for row in mpc_rows if row["Method"] == "Baseline 1")
     ours_cbf = next(row for row in cbf_rows if row["Method"] == "Ours")
-    b3_cbf = next(row for row in cbf_rows if row["Method"] == "B3 No-CBF")
+    b3_cbf = next(row for row in cbf_rows if row["Method"] == "Baseline 2")
 
     print("\nMathematical validation report")
     print("--------------------------------")
@@ -413,12 +418,12 @@ def print_report(mean_lambda, pose_rows, camera_rows, mpc_rows, cbf_rows, summar
     print(f"Camera validation: mean(Pd_aligned - Pd_unaligned) = {np.mean(camera_gains):.3f}; alignment increases Pd.")
     print(
         "MPC validation: Ours total integral = "
-        f"{float(ours_mpc['TotalPdIntegral']):.1f}, B2 = {float(b2_mpc['TotalPdIntegral']):.1f}."
+        f"{float(ours_mpc['TotalPdIntegral']):.1f}, Baseline 1 = {float(b2_mpc['TotalPdIntegral']):.1f}."
     )
     print(
         "CBF validation: Ours min h = "
         f"{float(ours_cbf['MinH']):.1f}, violations = {ours_cbf['SafetyViolations']}; "
-        f"B3 min h = {float(b3_cbf['MinH']):.1f}, violations = {b3_cbf['SafetyViolations']}."
+        f"Baseline 2 min h = {float(b3_cbf['MinH']):.1f}, violations = {b3_cbf['SafetyViolations']}."
     )
     print("\nEnd-to-end summary:")
     for row in summary_rows:
