@@ -1,473 +1,371 @@
-# GP-Guided MPC-CBF Active Sensing USV Simulation
+# GP-Guided Active Sensing with a Short-Range Directional Camera
 
-This repository contains a standalone Python simulation for a maritime active-sensing mission with an unmanned surface vehicle (USV), a directional camera, Gaussian Process target-arrival likelihood, sample-based MPC, and CBF obstacle safety constraints.
+This repository contains a simulation of an unmanned surface vehicle (USV) performing active sensing using a short-range directional camera.
 
-The purpose of the simulation is to demonstrate one central idea:
-
-```text
-choose where the USV moves and where the camera points
-to maximize target-detection performance
-while guaranteeing safe motion around obstacles
-```
-
-The main objective is:
+The objective is:
 
 ```text
-maximize    J_detection = integral P_d(t) dt
-subject to  h(p) >= 0
+maximize target detection performance
+while maintaining safe navigation
 ```
 
-where:
+The proposed framework combines:
 
-- `P_d` is the directional-camera detection probability,
-- `h(p)` is the obstacle CBF safety function,
-- `h(p) >= 0` means the USV remains outside obstacle safety zones.
+- Gaussian Process (GP) target-arrival modeling
+- Shape-adaptive observation planning
+- Directional camera control
+- Model Predictive Control (MPC)
+- Control Barrier Functions (CBF)
 
-Everything in the simulation supports this objective:
+The key idea is that the USV does not use a fixed observation strategy. Instead, it adapts its sensing trajectory according to the spatial shape of the estimated target-arrival distribution.
 
-- the GP map tells the USV where targets are likely to appear,
-- observation poses place the USV where detection probability should be high,
-- the directional camera objective keeps the target centered in the field of view,
-- MPC selects motion and camera commands that improve detection,
-- CBF constraints reject unsafe motions before they are applied.
+---
 
-## Simulation Scenario
+# Simulation Scenario
 
-The simulation represents a USV maritime surveillance mission in a `10 km x 10 km` operating area:
+The simulation is performed in a:
 
 ```text
-x in [-5000, 5000] m
-y in [0, 10000] m
+10 km × 10 km
 ```
 
-The USV starts near the bottom of the domain:
+operating area.
 
 ```text
-x = 0 m
-y = 500 m
-heading psi = pi/2
-camera pan theta_c = 0
+x ∈ [-5000, 5000] m
+y ∈ [0, 10000] m
 ```
 
-The nominal route is the vertical line:
+The USV starts at:
+
+```text
+(0, 0)
+```
+
+and follows a nominal route:
 
 ```text
 x = 0
 ```
 
-The mission is not simple waypoint tracking. The USV must actively position itself and orient its camera so that the accumulated detection probability is high, while all executed motion remains safe with respect to restricted zones.
-
-Scheduled observation windows are included to make the sensing task realistic: the USV cannot simply observe whenever it wants. It must reach useful viewpoints in time, keep the target in view, and maintain safety throughout the transit, observation, and route-return phases.
-
-### Target-Arrival Model
-
-The code first creates synthetic historical target-arrival observations from latent simulation-only arrival sources. These are not mission targets. They are used only to generate historical data.
-
-A Gaussian Process model is fit over the map to estimate a normalized spatial target-arrival likelihood:
+The mission contains four target regions:
 
 ```text
-lambda_bar(q) in [0, 1]
+T0
+T1
+T2
+T3
 ```
 
-The mission targets are then selected automatically from high-likelihood GP regions. This means the final target locations are outputs of the learned spatial likelihood map, not manually fixed target coordinates.
+generated automatically from historical target-arrival observations.
 
-### Mission Timing
-
-The mission has four ordered targets, `T0` through `T3`, with scheduled observation windows:
+The vehicle is equipped with a directional camera:
 
 ```text
-T0: 11:00-12:00
-T1: 14:00-14:45
-T2: 15:30-16:15
-T3: 17:00-17:30
+FOV = 60°
+Maximum Range = 450 m
 ```
 
-The vehicle must reach an observation pose and accumulate enough expected observation time during the target's window. These windows are not the main objective by themselves; they create a realistic constraint on the detection objective.
+and must actively position itself to maximize sensing performance.
 
-Observation progress is probabilistic:
+---
+
+# Proposed Framework
+
+The proposed framework combines:
+
+- Gaussian Process target-arrival modeling
+- Shape-adaptive observation planning
+- Active sensing MPC
+- Directional camera control
+- CBF-based obstacle avoidance
+
+Unlike conventional approaches that use a single observation point or a fixed observation pattern, the proposed method adapts the sensing trajectory according to the estimated shape of the target-arrival distribution.
 
 ```text
-observed_time_i += P_d(q_i, X) * dt
+Historical target arrivals
+            ↓
+      Gaussian Process
+            ↓
+Target-arrival distribution
+            ↓
+Shape-adaptive observation planning
+            ↓
+Active sensing MPC
+            ↓
+Directional camera control
+            ↓
+Obstacle-aware navigation via CBF
 ```
 
-A target is completed when:
+The GP model estimates where targets are most likely to appear and reveals the spatial structure of the target-arrival distribution.
+
+The observation planner then generates sensing viewpoints that adapt to this structure.
 
 ```text
-observed_time_i >= REQUIRED_OBSERVATION_TIME
+Compact distribution
+        ↓
+Short observation path
+
+Elongated distribution
+        ↓
+Elongated observation path
+
+Wide distribution
+        ↓
+More sensing viewpoints
+
+Irregular distribution
+        ↓
+Adaptive observation trajectory
 ```
 
-Thus, the mission success condition is tied directly to detection probability:
+Instead of forcing every target to use the same observation strategy, the USV automatically modifies its sensing behavior according to the underlying data distribution.
+
+The directional camera continuously points toward high-value uncovered target-arrival regions while also discovering nearby obstacles.
+
+The MPC controller selects motion commands that improve sensing quality, while the CBF guarantees safe navigation around detected obstacles.
+
+The resulting framework jointly optimizes:
 
 ```text
-higher P_d -> faster observation progress
-lower P_d  -> slower progress or missed target
+USV position
+Camera orientation
+Observation trajectory
+Obstacle awareness
 ```
 
-### Observation Pose Planning
+to maximize detection performance while preserving safety.
 
-For each GP-selected target, the code searches for an observation pose on a ring around the target:
+---
+
+# Detection-Oriented Active Sensing
+
+The objective is not simply to reach a target location.
+
+Instead, the USV seeks observation viewpoints that maximize detection quality.
+
+Detection performance depends on:
 
 ```text
-distance(p_obs, target) = R_BEST
+Target likelihood
+Observation distance
+Camera orientation
+Field-of-view visibility
+Obstacle visibility
 ```
 
-where:
+Because the camera has limited range, the USV may need to move around a target region and observe it from multiple viewpoints.
+
+Coverage is therefore used as a mechanism to improve detection performance rather than as the primary objective.
+
+---
+
+# Obstacle Discovery
+
+Obstacles are initially unknown.
+
+The onboard camera discovers obstacles only when they become visible.
 
 ```text
-R_BEST = 450 m
+Obstacle appears in camera view
+            ↓
+Obstacle detected
+            ↓
+CBF activated
+            ↓
+Safe avoidance maneuver
 ```
 
-Candidate poses are rejected if they are outside the valid operating area, inside an obstacle safety zone, or blocked by obstacle safety zones along the route-to-pose segment.
+This creates a realistic active-sensing scenario where perception and navigation are tightly coupled.
 
-The optimizer prefers poses that:
+---
 
-- stay reasonably close to the nominal route,
-- reduce travel distance from and back to the route,
-- preserve good viewing geometry,
-- maintain clearance from obstacle safety zones.
+# Proposed Method
 
-An observation pose is the planned USV position from which the target should be viewed. Its purpose is to increase detection probability, not merely to place the USV near the target.
-
-The observation pose contributes directly to the detection objective because the detection probability depends on range, camera angle, field-of-view visibility, and sensing range:
+## Ours
 
 ```text
-P_d =
-lambda_spatial
-* lambda_temporal
-* P_range
-* P_angle
-* FOV_gate
-* range_gate
+GP-guided active sensing
+Shape-adaptive observation planning
+Pan camera
+MPC controller
+CBF safety constraints
 ```
 
-A good observation pose places the USV close to the best sensing distance:
+Features:
+
+- Observation path adapts to target-distribution shape
+- Camera actively tracks high-value target-arrival regions
+- Online obstacle discovery
+- Smooth trajectory generation
+- Guaranteed safety through CBF
+
+---
+
+# Baselines
+
+## Baseline 1
 
 ```text
-distance(p_obs, target) approx R_BEST
+Fixed camera pose-heading
+Greedy viewpoint selection
+CBF safety constraints
 ```
 
-This increases the range term:
+Features:
+
+- Camera fixed to vehicle heading
+- No active camera steering
+- Safe navigation
+
+---
+
+## Baseline 2
 
 ```text
-P_range = exp(-((distance - R_BEST)^2) / (2 * SIGMA_R_BEST^2))
+Active sensing
+No CBF
 ```
 
-It also gives the camera a clear viewing direction so the angular error is small:
+Features:
+
+- Active sensing behavior
+- No formal safety guarantees
+- May collide with obstacles
+
+---
+
+# Performance Metrics
+
+The methods are evaluated using:
 
 ```text
-beta = theta_goal - theta_view approx 0
+Detection score
+Completed targets
+Field-of-view tracking
+Obstacle detection
+Safety violations
+Minimum obstacle clearance
+Trajectory smoothness
+Coverage statistics
 ```
 
-which increases:
+Coverage is reported as a supporting metric because broader observation of the target-arrival distribution generally leads to improved detection performance.
 
-```text
-P_angle = exp(-beta^2 / SIGMA_BETA^2)
-```
+---
 
-The pose must also keep the target inside the field of view and usable range:
-
-```text
-FOV_gate = 1
-range_gate = 1
-```
-
-Therefore:
-
-```text
-poor observation pose  -> low P_d -> slow or failed observation
-good observation pose  -> high P_d -> faster target completion
-```
-
-The selected observation pose also improves mission feasibility because it must be reachable and safe with respect to obstacle safety zones. In this way, observation pose planning directly connects the two parts of the objective:
-
-```text
-maximize detection
-while preserving safe motion
-```
-
-### Directional Camera Model
-
-The USV has a directional camera with pan angle `theta_c`. The camera view direction is:
-
-```text
-theta_view = psi + theta_c
-```
-
-The detection probability combines GP arrival likelihood, temporal window likelihood, range quality, angular alignment, and hard field-of-view/range gates:
-
-```text
-P_d =
-lambda_spatial
-* lambda_temporal
-* P_range
-* P_angle
-* FOV_gate
-* range_gate
-```
-
-where:
-
-- `P_range` is highest near `R_BEST`,
-- `P_angle` is highest when the camera points directly at the target,
-- `FOV_gate` requires the target to be inside the camera field of view,
-- `range_gate` requires the target to be inside maximum sensing range.
-
-### MPC-CBF Active Sensing Controller
-
-The main controller is a sample-based MPC. At every step, candidate controls are rolled out over a short horizon. Unsafe rollouts are rejected using CBF constraints.
-
-The MPC objective is designed to increase detection while respecting safety. It rewards:
-
-- progress toward the observation pose or route rejoin point,
-- camera alignment with the active target,
-- target detection probability,
-- schedule urgency,
-- route-following behavior when appropriate.
-
-It penalizes:
-
-- control effort,
-- abrupt changes in control.
-
-Obstacle safety is enforced using the CBF condition:
-
-```text
-h = ||p - p_obs||^2 - R_safe^2
-hdot + alpha h >= 0
-```
-
-Candidates that violate this condition are rejected. Therefore, the controller does not merely penalize unsafe behavior; it removes unsafe motion candidates from consideration.
-
-The selected control is the best control among the safe candidates:
-
-```text
-u* = argmax safe score(u)
-```
-
-where the score includes detection probability, camera alignment, progress, scheduling urgency, route behavior, effort, and smoothness.
-
-### Baseline Comparison Scenario
-
-The comparison script evaluates whether each part of the proposed objective matters:
-
-```text
-Ours        GP-guided MPC-CBF active sensing
-Baseline 1 greedy nearest observation pose with CBF
-Baseline 2 active sensing without CBF
-```
-
-Baseline 1 is intentionally simpler:
-
-- it uses greedy nearest observation poses,
-- it uses waypoint-following control,
-- it keeps CBF safety active,
-- it does not use the full GP-guided MPC objective or optimized rejoin behavior.
-
-Baseline 2 keeps active sensing behavior but disables obstacle CBF filtering. This shows what happens when detection is optimized without enforcing safety.
-
-The expected contrast is:
+# Expected Outcome
 
 ```text
 Ours:
-  high detection performance
-  zero safety violations
+- highest detection performance
+- best obstacle awareness
+- zero safety violations
+- smooth trajectory
 
 Baseline 1:
-  safe motion
-  weaker detection because sensing and motion are not jointly optimized
+- reduced detection performance
+- limited by fixed camera orientation
 
 Baseline 2:
-  high detection can still occur
-  but safety is violated because CBF filtering is removed
+- potentially high detection
+- unsafe navigation
 ```
 
-The comparison scenario includes extra comparison-only obstacles. These are added only inside `compare_baselines.py` and do not modify the original simulation file.
+---
 
-## Files
+# Generated Outputs
 
-- `usv_active_sensing_mpc_cbf_sim_research_model.py`
-  Main GP-guided MPC-CBF simulation.
-
-- `compare_baselines.py`
-  Compares three methods:
-  - Ours: GP-guided MPC-CBF active sensing
-  - Baseline 1: greedy nearest observation pose with CBF
-  - Baseline 2: active sensing without CBF
-
-- `validate_method_math.py`
-  Generates validation plots and CSV files showing how each component contributes to detection and safety.
-
-- `plot/`
-  Output folder for generated figures, CSV files, and MP4 videos.
-
-## Environment
-
-Use the existing conda environment:
-
-```bash
-conda activate screening
-```
-
-or run commands directly with:
-
-```bash
-conda run -n screening python <script_name.py>
-```
-
-Required packages:
+All outputs are saved in:
 
 ```text
-numpy
-matplotlib
-scikit-learn
+plot/
 ```
 
-The code also works with a fallback if scikit-learn is unavailable, but Gaussian Process regression uses scikit-learn when installed.
-
-## Run Main Simulation
-
-```bash
-conda run -n screening python usv_active_sensing_mpc_cbf_sim_research_model.py
-```
-
-Main outputs are saved in `plot/`:
+Typical outputs include:
 
 ```text
 trajectory_map.png
-gp_lambda_map.png
-schedule_status.png
-observation_timer.png
-detection_probability.png
-cbf_h.png
-route_active_sensing.mp4   if MP4 generation is enabled
+coverage_by_target.png
+obstacle_detection.png
+simulation.mp4
 ```
 
-To disable or enable the main MP4, edit:
+---
 
-```python
-GENERATE_MP4 = True
-```
+# Run
 
-near the top of `usv_active_sensing_mpc_cbf_sim_research_model.py`.
 
-## Run Baseline Comparison
+Run the simulation:
 
 ```bash
-conda run -n screening python compare_baselines.py
+python short_range_camera.py
 ```
 
-This runs:
-
-```text
-Ours
-Baseline 1
-Baseline 2
-```
-
-Comparison outputs are saved in `plot/comparison/`:
-
-```text
-comparison_metrics.csv
-comparison_metrics.png
-comparison_trajectories.png
-comparison_detection_probability.png
-comparison_observation_progress.png
-comparison_cbf_h.png
-comparison_test.mp4
-```
-
-To disable the comparison MP4, edit:
-
-```python
-GENERATE_COMPARISON_MP4 = False
-```
-
-in `compare_baselines.py`.
-
-## Run Mathematical Validation
+Generate video:
 
 ```bash
-conda run -n screening python validate_method_math.py
+python short_range_camera.py --generate-video
 ```
 
-Validation outputs are saved in `plot/validation/`:
+Specify output folder:
+
+```bash
+python short_range_camera.py --plot-dir plot
+```
+
+---
+
+# Key Contribution
+
+Most active-sensing approaches observe a target from a single viewpoint or follow a fixed observation pattern.
+
+In contrast, this work treats a target as a spatial probability distribution rather than a single point.
 
 ```text
-validation_gp_targets.csv
-validation_gp_targets.png
-validation_observation_pose.csv
-validation_observation_pose.png
-validation_camera_alignment.csv
-validation_camera_alignment.png
-validation_mpc_detection.csv
-validation_mpc_detection.png
-validation_cbf.csv
-validation_cbf.png
-validation_summary.csv
+Traditional:
+Target → Point
+
+This work:
+Target → Probability Distribution
 ```
 
-These plots validate:
+Historical observations are used to estimate the target-arrival distribution through a Gaussian Process model.
 
-- GP target selection chooses high-likelihood target areas.
-- Optimized observation poses improve expected sensing quality.
-- Camera alignment increases detection probability.
-- MPC active sensing improves integrated detection over the greedy baseline.
-- CBF constraints prevent obstacle safety violations.
-
-## Important Parameters
-
-Most parameters are defined near the top of `usv_active_sensing_mpc_cbf_sim_research_model.py`, including:
-
-```python
-X_MIN, X_MAX, Y_MIN, Y_MAX
-TARGETS
-WINDOWS
-OBSTACLES
-VMAX
-CRUISE_SPEED
-OMEGA_MAX
-FOV_RAD
-CAMERA_RANGE
-R_BEST
-SAFETY_MARGIN
-REQUIRED_OBSERVATION_TIME
-```
-
-The comparison script adds extra comparison-only obstacles inside `compare_baselines.py`. These do not modify the original simulation file.
-
-## Typical Workflow
-
-1. Run the main simulation:
-
-   ```bash
-   conda run -n screening python usv_active_sensing_mpc_cbf_sim_research_model.py
-   ```
-
-2. Run the baseline comparison:
-
-   ```bash
-   conda run -n screening python compare_baselines.py
-   ```
-
-3. Run mathematical validation:
-
-   ```bash
-   conda run -n screening python validate_method_math.py
-   ```
-
-4. Inspect results in:
-
-   ```text
-   plot/
-   plot/validation/
-   ```
-
-## Notes
-
-- The MPC is sample-based.
-- CBF safety is enforced by rejecting unsafe rollout candidates.
-- Observation progress accumulates using detection probability:
+The USV then adapts its observation trajectory according to the shape of the estimated distribution.
 
 ```text
-observed_time_i += P_d(q_i, X) * dt
+Target-distribution shape
+            ↓
+Observation-trajectory shape
+```
+
+As a result, different target-arrival patterns naturally produce different sensing behaviors.
+
+```text
+Compact target region
+        ↓
+Compact sensing path
+
+Elongated target region
+        ↓
+Elongated sensing path
+
+Wide target region
+        ↓
+Multiple sensing viewpoints
+
+Irregular target region
+        ↓
+Adaptive sensing trajectory
+```
+
+The main contribution is therefore:
+
+```text
+Detection-oriented active sensing
+with shape-adaptive observation planning
+for a short-range directional camera
+under CBF safety constraints.
 ```
