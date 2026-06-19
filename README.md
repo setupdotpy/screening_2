@@ -1,94 +1,84 @@
-# Distribution-Aware GP-Guided Active Sensing with a Short-Range Directional Camera
+# Distribution-Aware Active Sensing for a Toy Surveillance USV
 
-This repository contains a simulation of an unmanned surface vehicle (USV)
-performing active sensing with a short-range directional camera.
-
-The objective is to try to maximize target detection under uncertain
-target-arrival location while maintaining safe USV travel.
-
-The proposed framework combines:
-
-- GP/KDE-style target-arrival distribution modeling
-- distribution-adaptive observation planning
-- active directional-camera control
-- Model Predictive Control (MPC)
-- Control Barrier Function (CBF) safety filtering
-
-The key idea is that the target is not treated as one fixed point or as a
-geometric region that must be covered for its own sake. Instead, historical
-target-arrival samples define a spatial likelihood distribution. The USV chooses
-viewpoints that observe high-probability and still-unobserved parts of this
-distribution, while MPC-CBF keeps the vehicle motion safe around discovered
+This repository contains a toy simulation of a surveillance unmanned surface
+vehicle (USV) with a limited-range directional camera. The USV repositions
+itself and reorients its camera to try to maximize target detection under
+uncertain target-arrival location, while maintaining safe motion around
 obstacles.
+
+The project is not a full real-world USV stack. It is a simulation for testing
+the idea of distribution-aware active sensing with MPC-CBF safety filtering.
 
 ---
 
 # Simulation Scenario
 
-The simulation is performed in a:
+The simulation uses a 2D operating area:
 
 ```text
-10 km x 10 km
-```
-
-operating area:
-
-```text
+Area: 10 km x 10 km
 x in [-5000, 5000] m
 y in [0, 10000] m
+Start: (0, 0)
+Nominal route: x = 0
 ```
 
-The USV starts at:
+The mission contains four uncertain target-arrival cases:
 
 ```text
-(0, 0)
+T0, T1, T2, T3
 ```
 
-and follows a nominal route:
+Each target case is generated from historical target-arrival samples. The true
+future target location is uncertain, so the target is modeled as a spatial
+arrival distribution instead of one fixed point.
+
+The USV sensor is a short-range directional camera:
 
 ```text
-x = 0
+Field of view: 60 deg
+Maximum range: 450 m
+Camera mode: pan camera for the proposed method
 ```
 
-The mission contains four target-arrival distributions:
-
-```text
-T0
-T1
-T2
-T3
-```
-
-These are generated from historical target-arrival observations.
-
-The vehicle is equipped with a directional camera:
-
-```text
-FOV = 60 deg
-Maximum range = 450 m
-```
-
-Obstacles are initially unknown and are discovered only when they enter the
-camera sensing region.
+Obstacles are initially unknown. The USV discovers an obstacle only after the
+obstacle enters the camera sensing region. After discovery, the obstacle is used
+by the CBF safety filter.
 
 ---
 
-# Pipeline Flow
+# Core Objective
 
-The current pipeline is:
+The objective is:
+
+```text
+try to maximize target detection probability
+under uncertain target-arrival location
+while maintaining safe USV motion
+```
+
+The goal is not to cover a whole target region for its own sake. Coverage is
+reported only as a supporting metric that measures how much high-probability
+target-arrival support has been observed.
+
+---
+
+# Pipeline
+
+The simulation pipeline is:
 
 ```text
 Historical target-arrival samples
         ->
-GP/KDE-style target-arrival likelihood field
+GP/KDE-style likelihood field
         ->
 Target spread estimation
         ->
-Support samples from high-value arrival distribution
+Support samples from the arrival distribution
         ->
 Candidate observation pose generation
         ->
-Visibility and detection scoring
+Camera visibility and detection scoring
         ->
 MPC motion planning
         ->
@@ -99,179 +89,109 @@ CBF safety filtering
 USV state update and metric evaluation
 ```
 
-The pipeline is detection-oriented. The USV is not trying to cover a whole
-target region just for coverage. The goal is to detect one target whose future
-arrival point is uncertain. Coverage is used only as a supporting metric to
-measure how much likely target-arrival support has been observed.
+In practical terms, the USV searches for viewpoints that can see useful,
+high-probability parts of the target-arrival distribution. MPC moves the USV
+toward the selected viewpoint, and CBF filtering removes unsafe controls when
+detected obstacles are nearby.
 
 ---
 
-# Proposed Framework
+# Method Summary
 
-The proposed method uses historical target-arrival samples to estimate where a
-future target is more likely to appear. This likelihood field is then converted
-into support samples. Candidate observation poses are evaluated by how much
-high-probability, still-unobserved support can be seen from each pose.
+## Target-Arrival Distribution
 
-In simple terms:
+Historical samples are converted into a GP/KDE-style spatial likelihood field.
+High likelihood means the target is more likely to arrive at that location.
+
+The planner uses this field to avoid assuming that the future target position is
+only the distribution center.
+
+## Distribution-Aware Observation Planning
+
+The likelihood field is sampled into support points. Candidate observation poses
+are evaluated by how much visible, high-probability, unobserved support they can
+observe.
+
+The selected pose is the one with the largest useful visible probability mass.
+
+## Camera Visibility and Detection
+
+Detection depends on:
 
 ```text
-High-probability target-arrival support
-        ->
-Useful camera viewpoints
-        ->
-MPC trajectory toward the selected viewpoint
-        ->
-CBF filter removes unsafe controls
+target-arrival likelihood
+camera range
+camera field of view
+camera-target bearing error
+observation distance
 ```
 
-Different arrival distributions naturally lead to different sensing behavior:
+A target-support sample is useful only if it is within camera range and inside
+the camera field of view.
 
-```text
-Compact distribution
-        ->
-Shorter sensing path
+## MPC Motion Planning
 
-Elongated distribution
-        ->
-Longer path along the distribution support
+MPC samples possible controls and scores them using progress, detection utility,
+camera alignment, and smoothness. The controller then moves the USV toward the
+selected observation pose.
 
-Wide distribution
-        ->
-More observation viewpoints
+## Online Obstacle Discovery and CBF Safety
 
-Irregular or multi-modal distribution
-        ->
-Adaptive viewpoint sequence
-```
+The camera also discovers obstacles. Once an obstacle is detected, CBF safety
+filtering rejects candidate controls that would move the USV into unsafe
+clearance.
 
-The directional camera points toward high-value target-arrival support while
-also discovering nearby obstacles. MPC proposes motion commands that balance
-progress, detection utility, camera alignment, and smoothness. CBF filtering
-rejects unsafe candidate controls after obstacles have been detected.
+This couples perception, sensing, motion planning, and safety in one loop.
 
 ---
 
-# Detection-Oriented Active Sensing
+# Compared Methods
 
-The objective is not simply to reach the nominal target center.
-
-Instead, the USV seeks observation viewpoints that increase the chance of
-detecting a target whose arrival location is uncertain.
-
-Detection performance depends on:
+## Proposed Method
 
 ```text
-Target-arrival likelihood
-Observation distance
-Camera orientation
-Field-of-view visibility
-Camera range
-Obstacle visibility
-```
-
-Because the camera has limited range and FOV, the USV may need to move around
-the target-arrival distribution and observe several high-probability regions.
-
-Coverage is reported only as a supporting metric because it indicates how much
-likely target-arrival probability or support has been observed.
-
----
-
-# Obstacle Discovery and Safety
-
-Obstacles are initially unknown.
-
-The onboard camera discovers obstacles only when they become visible:
-
-```text
-Obstacle enters camera view
-        ->
-Obstacle detected
-        ->
-CBF safety filter activated
-        ->
-Unsafe controls rejected
-        ->
-Safe motion command selected
-```
-
-This creates an online active-sensing problem where perception, planning, and
-safety are coupled.
-
----
-
-# Proposed Method
-
-## Ours
-
-```text
-Distribution-aware GP/KDE-guided active sensing
+Distribution-aware observation planning
 Active pan camera
-MPC controller
-CBF safety filtering
+MPC motion planning
 Online obstacle discovery
+CBF safety filtering
 ```
 
-Features:
-
-- observation path adapts to the target-arrival distribution
-- camera actively tracks high-value target-arrival support
-- candidate poses are selected using visible unobserved probability mass
-- obstacles are discovered online
-- MPC generates smooth motion toward selected viewpoints
-- CBF filtering rejects unsafe controls after obstacle discovery
-
----
-
-# Baselines
+Purpose: test whether the USV can actively reposition and reorient the camera
+to observe likely target-arrival locations while staying safe.
 
 ## Baseline 1: Fixed Camera Heading
 
 ```text
-Distribution-aware observation planning
-Fixed camera relative to vehicle heading
-MPC controller
+Same observation-planning framework
+Camera fixed to vehicle heading
+MPC motion planning
 CBF safety filtering
 ```
 
-Features:
-
-- camera is fixed to vehicle heading
-- no independent camera steering
-- same CBF safety filtering as the proposed method
-- evaluates the value of active camera orientation
-
----
+Purpose: test the value of independent camera pan control.
 
 ## Baseline 2: Active Sensing Without CBF
 
 ```text
-Distribution-aware observation planning
+Same active sensing framework
 Active pan camera
-MPC controller
+MPC motion planning
 No CBF safety filtering
 ```
 
-Features:
-
-- active sensing behavior is retained
-- candidate controls are not filtered by CBF constraints
-- may achieve high raw detection score
-- may collide with obstacles or violate safety boundaries
-- evaluates the value of the CBF safety layer
+Purpose: test the value of the CBF safety layer.
 
 ---
 
-# Performance Metrics
+# Metrics
 
-The methods are evaluated using:
+The simulation reports:
 
 ```text
 Detection score
 Target-arrival distribution coverage
-Field-of-view tracking
-Obstacle detection
+FOV success rate
 Avoided obstacles
 Collisions
 Safety violations
@@ -280,20 +200,20 @@ Trajectory smoothness
 Mission completion
 ```
 
-Coverage is a supporting metric, not the main objective. The main objective is
-target detection under arrival uncertainty while maintaining safe navigation.
+Coverage is not the main objective. It is used to show how much likely
+target-arrival support has been observed.
 
 ---
 
-# Generated Outputs
+# Outputs
 
-All outputs are saved in:
+All generated outputs are saved in:
 
 ```text
 plot/
 ```
 
-Typical outputs include:
+Common outputs:
 
 ```text
 trajectory_map.png
@@ -302,9 +222,9 @@ safety_violations.png
 fov_success.png
 obstacle_avoided.png
 turning_radius.png
-simulation.mp4
 metrics.csv
 r95.csv
+simulation.mp4
 ```
 
 ---
@@ -317,26 +237,26 @@ Run the simulation:
 python short_range_camera.py
 ```
 
-Generate video:
+Generate an MP4 video:
 
 ```bash
 python short_range_camera.py --video
 ```
 
-Generate video with a custom name:
+Generate a video with a custom filename:
 
 ```bash
 python short_range_camera.py --video paper_demo.mp4
 ```
 
-Specify output folder:
+Set a custom output directory on Windows:
 
 ```bash
 set SRC_PLOT_DIR=plot
 python short_range_camera.py
 ```
 
-On Linux or macOS:
+Set a custom output directory on Linux or macOS:
 
 ```bash
 export SRC_PLOT_DIR=plot
@@ -345,30 +265,17 @@ python short_range_camera.py
 
 ---
 
-# Key Contribution
+# Main Idea
 
-Most active-sensing approaches observe a target from a fixed viewpoint or use a
-single predicted target point.
-
-This work instead treats the future target location as a spatial probability
-distribution:
+This simulation studies a simple question:
 
 ```text
-Traditional:
-Target -> one point
-
-This work:
-Target -> target-arrival distribution
+Can a surveillance USV with a limited-range camera
+move and point its camera in a distribution-aware way
+to improve target detection attempts
+while still keeping motion safe?
 ```
 
-The USV then selects observation poses based on high-probability parts of this
-distribution and uses MPC-CBF to balance detection utility with navigation
-safety.
-
-The main contribution is:
-
-```text
-Detection-oriented, distribution-aware active sensing
-for a short-range directional-camera USV
-with MPC-CBF safety filtering.
-```
+The proposed answer is to combine target-arrival likelihood modeling,
+distribution-aware viewpoint selection, MPC motion planning, active camera
+orientation, online obstacle discovery, and CBF safety filtering.
