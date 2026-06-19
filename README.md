@@ -1,4 +1,4 @@
-# Distribution-Aware Active Sensing for a Toy Surveillance USV
+# Distribution-Adaptive Active Sensing for Target Detection Under Arrival Uncertainty Using MPC-CBF-Controlled Directional-Camera USVs
 
 This repository contains a toy simulation of a surveillance unmanned surface
 vehicle (USV) with a limited-range directional camera. The USV repositions
